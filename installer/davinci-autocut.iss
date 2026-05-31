@@ -30,6 +30,7 @@ DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir=output
 OutputBaseFilename=DaVinciAutoCut-Setup
+SetupIconFile=..\assets\icon.ico
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern

@@ -1,4 +1,6 @@
-# DaVinci AutoCut
+<p align="center">
+  <img src="assets/logo.png" alt="DaVinci AutoCut" width="640">
+</p>
 
 A free, open-source tool that removes silent gaps from a **DaVinci Resolve**
 timeline. It runs **inside Resolve** as a script (`Workspace → Scripts →
@@ -19,7 +21,8 @@ exported or rendered; the new timeline just references your existing media.
 3. Keeps the non-silent ranges, with a small configurable padding (default
    150 ms) on each side so cuts don't clip speech.
 4. Builds a **new timeline** (`<original> - AutoCut`) from those ranges, beside
-   the original.
+   the original — keeping the video **and all audio tracks** (e.g. system audio
+   + microphone) in sync.
 
 ## Why it runs *inside* Resolve (important)
 
@@ -45,26 +48,41 @@ free version.
 3. Restart DaVinci Resolve.
 4. Open your timeline, then run **`Workspace → Scripts → DaVinci AutoCut`**.
 
-> Windows may show a SmartScreen "unknown publisher" warning for an unsigned
-> installer. Click **More info → Run anyway**.
+> **Heads-up on Windows security prompts.** The installer isn't code-signed yet.
+> - **SmartScreen** ("Windows protected your PC") → click **More info → Run
+>   anyway**.
+> - **Smart App Control** (newer Windows 11) is stricter and has *no* "Run
+>   anyway". If it blocks the installer, use the **manual install** below
+>   instead — it doesn't run any unsigned executable.
 
-## Install — macOS / Linux (manual)
+## Install — manual (any OS, avoids the installer)
 
-There's no packaged installer yet for macOS/Linux, but installing by hand is
-quick:
+This works everywhere and sidesteps Windows Smart App Control, since it runs no
+unsigned `.exe`:
 
-1. Install **ffmpeg** and make sure Resolve can find a **Python 3**:
-   - macOS: `brew install ffmpeg` (and install Python 3 from python.org if you
-     don't have it).
-   - Linux: `sudo apt install ffmpeg python3` (or your distro's equivalent).
-2. Copy `DaVinci AutoCut.py` **and** the `autocut/` folder into Resolve's
-   Scripts folder:
+1. Get the files: download this repo as a ZIP (green **Code → Download ZIP**) or
+   `git clone` it.
+2. Install **ffmpeg** and a **Python 3** Resolve can use:
+   - Windows: `winget install Gyan.FFmpeg` and Python 3 from the Microsoft Store
+     or [python.org](https://www.python.org/downloads/).
+   - macOS: `brew install ffmpeg` (+ Python 3 from python.org).
+   - Linux: `sudo apt install ffmpeg python3`.
+3. Copy `DaVinci AutoCut.py` **and** the `autocut/` folder into Resolve's Scripts
+   folder:
+   - Windows: `%APPDATA%\Blackmagic Design\DaVinci Resolve\Support\Fusion\Scripts\Edit\DaVinciAutoCut\`
    - macOS: `~/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Edit/`
    - Linux: `~/.local/share/DaVinciResolve/Fusion/Scripts/Edit/`
-3. Restart Resolve → `Workspace → Scripts → DaVinci AutoCut`.
+4. Restart Resolve → `Workspace → Scripts → DaVinci AutoCut`.
 
-(ffmpeg on your PATH is fine; or drop an `ffmpeg` binary in `autocut/bin/` next
-to the plugin.)
+On Windows, this PowerShell snippet (run from the cloned repo) does the copy, and
+re-running it after a `git pull` is how you update:
+
+```powershell
+$dst = "$env:APPDATA\Blackmagic Design\DaVinci Resolve\Support\Fusion\Scripts\Edit\DaVinciAutoCut"
+New-Item -ItemType Directory -Force -Path $dst | Out-Null
+Copy-Item ".\DaVinci AutoCut.py" $dst -Force
+Copy-Item ".\autocut" $dst -Recurse -Force
+```
 
 ## Using it
 
@@ -110,6 +128,7 @@ autocut/
   resolve_env.py          # fallback env setup for external (Studio) connection
 installer/
   davinci-autocut.iss     # Inno Setup script for the Windows installer
+assets/                   # logo + icon (SVG sources, rendered PNG/ICO)
 ```
 
 ## Building the Windows installer
