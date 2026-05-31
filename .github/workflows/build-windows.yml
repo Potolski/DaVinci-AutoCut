@@ -25,7 +25,10 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          # 3.11 still ships the legacy 'imp' module that Blackmagic's
+          # DaVinciResolveScript.py imports (removed in 3.12+). Building on a
+          # newer Python breaks the Resolve connection at import time.
+          python-version: "3.11"
 
       - name: Install dependencies
         run: |

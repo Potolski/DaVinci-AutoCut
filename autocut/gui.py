@@ -7,9 +7,13 @@ Tk main thread via a thread-safe queue.
 
 from __future__ import annotations
 
+import os
 import queue
+import sys
+import tempfile
 import threading
 import tkinter as tk
+import traceback
 from tkinter import ttk
 
 from .audio_analysis import AnalysisSettings, AudioAnalysisError
@@ -19,6 +23,33 @@ from .resolve_api import ResolveConnection, ResolveError, connect
 _GREEN = "#2e7d32"
 _RED = "#c62828"
 _GREY = "#666666"
+
+
+def _crash_log_path() -> str:
+    """Where to persist tracebacks (next to a frozen exe, else the temp dir)."""
+    if getattr(sys, "frozen", False):
+        return os.path.join(os.path.dirname(sys.executable), "davinci-autocut-error.log")
+    return os.path.join(tempfile.gettempdir(), "davinci-autocut-error.log")
+
+
+def _format_unexpected(exc: BaseException) -> str:
+    """Render an unexpected error for the log and also save the full traceback.
+
+    A windowed .exe has no console, so without this an unhandled exception would
+    vanish. We write the traceback to a file and return a short, actionable
+    message that points the user at it.
+    """
+    tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    path = _crash_log_path()
+    try:
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(tb)
+    except OSError:
+        path = "(could not write log file)"
+    return (
+        f"Unexpected error: {type(exc).__name__}: {exc}\n"
+        f"Full details saved to:\n  {path}"
+    )
 
 
 class AutoCutApp(ttk.Frame):
@@ -139,6 +170,9 @@ class AutoCutApp(ttk.Frame):
         except ResolveError as exc:
             self._events.put(("connect_error", str(exc)))
             return
+        except Exception as exc:  # never let the thread die silently
+            self._events.put(("connect_error", _format_unexpected(exc)))
+            return
         self._events.put(("connect_ok", (conn, name)))
 
     # -- cut ------------------------------------------------------------------
@@ -173,7 +207,7 @@ class AutoCutApp(ttk.Frame):
             self._events.put(("cut_error", str(exc)))
             return
         except Exception as exc:  # pragma: no cover - last-resort guard
-            self._events.put(("cut_error", f"Unexpected error: {exc}"))
+            self._events.put(("cut_error", _format_unexpected(exc)))
             return
         self._events.put(("cut_ok", result))
 

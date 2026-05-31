@@ -84,16 +84,43 @@ def load_resolve_module():
     """
     configure_environment()
 
+    api_path = os.environ.get("RESOLVE_SCRIPT_API", "<unset>")
+    lib_path = os.environ.get("RESOLVE_SCRIPT_LIB", "<unset>")
+
     try:
+        # Catch broadly: Blackmagic's module can fail in surprising ways
+        # (missing native lib, the removed stdlib 'imp' module, etc.), not just
+        # with a plain ImportError.
         import DaVinciResolveScript as dvr_script  # type: ignore
-    except ImportError as exc:
-        api_path = os.environ.get("RESOLVE_SCRIPT_API", "<unset>")
-        raise ResolveEnvironmentError(
-            "Could not import the DaVinci Resolve scripting module.\n"
-            f"Looked under: {os.path.join(api_path, 'Modules')}\n"
-            "Make sure DaVinci Resolve is installed. If it lives in a custom "
-            "location, set the RESOLVE_SCRIPT_API and RESOLVE_SCRIPT_LIB "
-            "environment variables before launching."
-        ) from exc
+    except Exception as exc:
+        detail = f"{type(exc).__name__}: {exc}"
+        lines = [
+            "Could not load the DaVinci Resolve scripting module.",
+            f"Reason: {detail}",
+            f"Modules path: {os.path.join(api_path, 'Modules')}",
+            f"Library (RESOLVE_SCRIPT_LIB): {lib_path}",
+        ]
+
+        if lib_path not in ("<unset>", "") and not os.path.isfile(lib_path):
+            lines.append(
+                "-> That fusionscript library file does not exist. DaVinci "
+                "Resolve may be installed in a non-standard location; set the "
+                "RESOLVE_SCRIPT_LIB environment variable to its real path."
+            )
+
+        # Blackmagic's DaVinciResolveScript.py uses the legacy 'imp' module,
+        # which Python removed in 3.12. A build on 3.12+ will hit this.
+        if isinstance(exc, ModuleNotFoundError) and getattr(exc, "name", "") == "imp":
+            lines.append(
+                "-> This app was built with a Python version (3.12+) that "
+                "removed the legacy 'imp' module that Resolve's scripting "
+                "module relies on. Please use the build made with Python 3.11."
+            )
+
+        lines.append(
+            "Also confirm Resolve is running and scripting is set to Local "
+            "(Preferences -> System -> General -> External scripting using)."
+        )
+        raise ResolveEnvironmentError("\n".join(lines)) from exc
 
     return dvr_script
