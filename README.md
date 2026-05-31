@@ -26,7 +26,33 @@ in the same project, so the original stays as a backup.
 5. Builds a **new timeline** (named `<original> - AutoCut`) from those keep
    ranges. The original timeline is left intact.
 
+## Windows: download and run (no Python, no ffmpeg)
+
+The easiest way on Windows is the prebuilt **`DaVinciAutoCut.exe`**. It bundles
+Python, all dependencies, **and ffmpeg** — so you just download one file and
+double-click it.
+
+1. Make sure **DaVinci Resolve is installed and running**, with scripting set to
+   **Local** (see [Enable scripting](#1-enable-scripting-in-resolve)) and the
+   timeline you want to cut open.
+2. Download `DaVinciAutoCut.exe` from the
+   [**Releases**](../../releases/latest) page. (Don't have a release yet? See
+   [Building the Windows .exe](#building-the-windows-exe) — it can be produced
+   automatically by GitHub Actions.)
+3. Double-click `DaVinciAutoCut.exe`.
+4. Click **Connect to Resolve**, adjust the sliders, and click **Cut Timeline**.
+
+That's it — nothing else to install. The only thing the .exe can't include is
+DaVinci Resolve itself, because the whole point is to connect to *your* running
+copy.
+
+> Windows may show a SmartScreen "unknown publisher" warning for an unsigned
+> executable. Click **More info → Run anyway**.
+
 ## Requirements
+
+> These apply if you run from source or on macOS/Linux. Windows users running the
+> prebuilt `.exe` only need DaVinci Resolve.
 
 - **DaVinci Resolve** (free or Studio), installed and running.
 - **Python 3.9+** with **Tkinter** (ships with the standard python.org
@@ -123,22 +149,57 @@ autocut/
 The Resolve connection, audio analysis, and GUI are deliberately kept in
 separate modules.
 
-## Building a standalone executable (optional)
+## Building the Windows .exe
 
-You can bundle the app with [PyInstaller](https://pyinstaller.org/) so it runs
-without a separate Python install:
+The repo ships everything needed to produce the standalone
+`DaVinciAutoCut.exe`. It bundles ffmpeg via the
+[`autocut.spec`](autocut.spec) PyInstaller spec.
+
+### Option A — let GitHub Actions build it (no Windows machine needed)
+
+The [`build-windows.yml`](.github/workflows/build-windows.yml) workflow builds
+the `.exe` on a Windows runner automatically:
+
+- **Every push to `main`** (and manual *Run workflow* from the Actions tab):
+  the `.exe` is uploaded as a downloadable **build artifact**.
+- **Pushing a version tag** publishes the `.exe` to a **GitHub Release**:
+
+  ```bash
+  git tag v0.1.0
+  git push origin v0.1.0
+  ```
+
+  The finished `DaVinciAutoCut.exe` then appears on the repo's Releases page.
+
+### Option B — build locally on Windows
+
+With Python 3.9+ installed, from the repo root:
+
+```bat
+build_windows.bat
+```
+
+It installs the dependencies, downloads ffmpeg into `vendor/`, runs PyInstaller,
+and leaves the result at `dist\DaVinciAutoCut.exe`.
+
+Notes:
+
+- DaVinci Resolve still has to be installed on the target machine — PyInstaller
+  bundles the Python app and ffmpeg, but not Resolve.
+- Blackmagic's scripting module is still loaded from the local Resolve install
+  at runtime, by design.
+- The bundled ffmpeg is a GPL build from <https://www.gyan.dev/ffmpeg/builds/>;
+  it is downloaded at build time and is not committed to this repository.
+
+### macOS / Linux
+
+The same spec works for a native app bundle if you place an `ffmpeg` binary in
+`vendor/` first:
 
 ```bash
 python -m pip install pyinstaller
-pyinstaller --onefile --windowed --name DaVinciAutoCut autocut.py
+pyinstaller autocut.spec
 ```
-
-The executable lands in `dist/`. Notes:
-
-- ffmpeg and DaVinci Resolve still need to be installed on the target machine —
-  PyInstaller bundles the Python app, not those external programs.
-- Blackmagic's scripting module is still loaded from the local Resolve install
-  at runtime, by design.
 
 ## Troubleshooting
 
