@@ -92,6 +92,9 @@ def run_autocut(
     if not clips:
         raise ResolveError("No source-backed video clips found on the timeline.")
 
+    # Capture this before we create/switch to the new timeline.
+    audio_track_count = conn.source_audio_track_count()
+
     all_keep_ranges: List[KeepRange] = []
     skipped: List[str] = []
 
@@ -116,7 +119,9 @@ def run_autocut(
 
     new_name = f"{source_name} - {new_timeline_suffix}"
     progress(f"Building new timeline {new_name!r} with {len(all_keep_ranges)} segment(s)...")
-    created_name = conn.build_cut_timeline(all_keep_ranges, new_name)
+    created_name = conn.build_cut_timeline(
+        all_keep_ranges, new_name, audio_track_count=audio_track_count
+    )
 
     return CutResult(
         new_timeline_name=created_name,

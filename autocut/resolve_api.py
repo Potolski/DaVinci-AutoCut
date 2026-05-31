@@ -121,6 +121,11 @@ class ResolveConnection:
     def current_timeline_name(self) -> str:
         return self._current_timeline().GetName()
 
+    def source_audio_track_count(self) -> int:
+        """How many audio tracks the source timeline has (at least 1)."""
+        timeline = self._current_timeline()
+        return max(1, int(timeline.GetTrackCount("audio") or 1))
+
     # -- reading --------------------------------------------------------------
 
     def read_timeline_clips(self) -> List[TimelineClip]:
@@ -166,12 +171,19 @@ class ResolveConnection:
 
     # -- writing --------------------------------------------------------------
 
-    def build_cut_timeline(self, keep_ranges: List[KeepRange], name: str) -> str:
+    def build_cut_timeline(
+        self, keep_ranges: List[KeepRange], name: str, audio_track_count: int = 1
+    ) -> str:
         """Create a new timeline and append every keep-range as a subclip.
 
         Returns the name of the created timeline. The source timeline is never
         modified. Uses ``MediaPool.AppendToTimeline`` with explicit source
         in/out frames, which is far more reliable than in-place blade/ripple.
+
+        ``audio_track_count`` should match the source timeline. A fresh timeline
+        only has one audio track, so a clip carrying several audio streams (e.g.
+        system audio + microphone) would land only its first stream and drop the
+        rest. Pre-creating the tracks lets Resolve distribute every stream.
         """
         if not keep_ranges:
             raise ResolveError("Nothing to keep – every analyzed clip was silent.")
@@ -182,6 +194,11 @@ class ResolveConnection:
         new_timeline = media_pool.CreateEmptyTimeline(name)
         if new_timeline is None:
             raise ResolveError(f"Resolve refused to create a timeline named {name!r}.")
+
+        # Give the new timeline as many audio tracks as the source so all of the
+        # clip's audio streams come across, not just the first one.
+        for _ in range(max(0, int(audio_track_count) - 1)):
+            new_timeline.AddTrack("audio")
 
         # Make the new timeline current so AppendToTimeline targets it.
         project.SetCurrentTimeline(new_timeline)
