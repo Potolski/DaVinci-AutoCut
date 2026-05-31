@@ -1,9 +1,9 @@
-name: Build Windows executable
+name: Build Windows installer
 
-# Builds a standalone Windows .exe (with ffmpeg bundled in) and publishes it.
-# - Every push to main / manual run: the .exe is uploaded as a build artifact.
-# - Pushing a version tag (e.g. v0.1.0): the .exe is also attached to a GitHub
-#   Release so people can download it directly.
+# Builds DaVinciAutoCut-Setup.exe (Inno Setup), with ffmpeg bundled in, and
+# publishes it.
+# - Push to main / manual run: uploaded as a build artifact.
+# - Push a version tag (e.g. v0.2.0): also attached to a GitHub Release.
 
 on:
   push:
@@ -22,18 +22,14 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          # 3.11 still ships the legacy 'imp' module that Blackmagic's
-          # DaVinciResolveScript.py imports (removed in 3.12+). Building on a
-          # newer Python breaks the Resolve connection at import time.
-          python-version: "3.11"
-
-      - name: Install dependencies
+      - name: Compute version
+        shell: bash
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt pyinstaller
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          else
+            echo "VERSION=0.2.0-dev" >> "$GITHUB_ENV"
+          fi
 
       - name: Download and vendor ffmpeg
         shell: pwsh
@@ -41,23 +37,31 @@ jobs:
           $url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
           Invoke-WebRequest -Uri $url -OutFile ffmpeg.zip
           Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_dl
-          New-Item -ItemType Directory -Force -Path vendor | Out-Null
+          New-Item -ItemType Directory -Force -Path installer\vendor | Out-Null
           $ffmpeg = Get-ChildItem -Recurse -Path ffmpeg_dl -Filter ffmpeg.exe | Select-Object -First 1
           $ffprobe = Get-ChildItem -Recurse -Path ffmpeg_dl -Filter ffprobe.exe | Select-Object -First 1
-          Copy-Item $ffmpeg.FullName vendor\ffmpeg.exe
-          Copy-Item $ffprobe.FullName vendor\ffprobe.exe
+          Copy-Item $ffmpeg.FullName installer\vendor\ffmpeg.exe
+          Copy-Item $ffprobe.FullName installer\vendor\ffprobe.exe
 
-      - name: Build the executable
-        run: pyinstaller autocut.spec
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Build the installer
+        shell: pwsh
+        working-directory: installer
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+            "/DAppVersion=$env:VERSION" /DFFmpegDir=vendor davinci-autocut.iss
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DaVinciAutoCut-windows
-          path: dist/DaVinciAutoCut.exe
+          name: DaVinciAutoCut-Setup
+          path: installer/output/DaVinciAutoCut-Setup.exe
 
       - name: Attach to release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/DaVinciAutoCut.exe
+          files: installer/output/DaVinciAutoCut-Setup.exe

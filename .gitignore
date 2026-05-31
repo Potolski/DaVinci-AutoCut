@@ -19,10 +19,14 @@ Thumbs.db
 .idea/
 .vscode/
 
-# Bundled ffmpeg (downloaded by the build scripts, not committed)
+# Bundled ffmpeg (downloaded by the build, not committed)
 vendor/
 ffmpeg.zip
 ffmpeg_dl/
+
+# Installer build output and locally-bundled ffmpeg
+installer/output/
+autocut/bin/
 
 # Local config / logs
 *.log
