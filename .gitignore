@@ -5,7 +5,6 @@ __pycache__/
 .eggs/
 build/
 dist/
-*.spec
 
 # Virtual environments
 .venv/
@@ -19,6 +18,11 @@ Thumbs.db
 # IDE
 .idea/
 .vscode/
+
+# Bundled ffmpeg (downloaded by the build scripts, not committed)
+vendor/
+ffmpeg.zip
+ffmpeg_dl/
 
 # Local config / logs
 *.log
