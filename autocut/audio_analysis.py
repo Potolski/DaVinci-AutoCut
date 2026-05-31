@@ -7,10 +7,12 @@ shells out to it to decode whatever container/codec the source uses.
 
 from __future__ import annotations
 
+import os
 import shutil
+import sys
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from pydub import AudioSegment
 from pydub.silence import detect_nonsilent
@@ -34,14 +36,67 @@ class AnalysisSettings:
     padding_ms: int = 150
 
 
+def _bundle_dirs() -> List[str]:
+    """Directories to search for an ffmpeg shipped alongside a frozen build.
+
+    A PyInstaller one-file build unpacks its bundled files into ``sys._MEIPASS``;
+    a one-folder build keeps them next to the executable. We check both, plus a
+    ``ffmpeg`` subfolder, so the same code works however the app was packaged.
+    """
+    dirs: List[str] = []
+    if getattr(sys, "frozen", False):
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            dirs.append(meipass)
+        dirs.append(os.path.dirname(sys.executable))
+    return dirs
+
+
+def _find_ffmpeg() -> Optional[str]:
+    """Return a path to ffmpeg: a bundled copy if present, else one on PATH."""
+    exe = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+    for directory in _bundle_dirs():
+        for candidate in (os.path.join(directory, exe), os.path.join(directory, "ffmpeg", exe)):
+            if os.path.isfile(candidate):
+                return candidate
+    return shutil.which("ffmpeg")
+
+
+_ffmpeg_configured = False
+
+
+def configure_ffmpeg() -> Optional[str]:
+    """Point pydub at the resolved ffmpeg (and ffprobe) binary.
+
+    Returns the ffmpeg path, or ``None`` if none could be found. Wiring pydub's
+    ``converter``/``ffprobe`` explicitly means a bundled ffmpeg works even when
+    nothing is installed on the user's PATH. Idempotent.
+    """
+    global _ffmpeg_configured
+    ffmpeg_path = _find_ffmpeg()
+    if ffmpeg_path and not _ffmpeg_configured:
+        AudioSegment.converter = ffmpeg_path
+        bin_dir = os.path.dirname(ffmpeg_path)
+        probe = "ffprobe.exe" if os.name == "nt" else "ffprobe"
+        probe_path = os.path.join(bin_dir, probe)
+        if os.path.isfile(probe_path):
+            AudioSegment.ffprobe = probe_path
+        # Prepend so pydub's own PATH lookups also find the bundled binary.
+        os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+        _ffmpeg_configured = True
+    return ffmpeg_path
+
+
 def ensure_ffmpeg_available() -> None:
-    """Raise :class:`AudioAnalysisError` if ffmpeg is not on PATH."""
-    if shutil.which("ffmpeg") is None:
+    """Raise :class:`AudioAnalysisError` if no usable ffmpeg can be found."""
+    if configure_ffmpeg() is None:
         raise AudioAnalysisError(
-            "ffmpeg was not found on your PATH. Install it and try again:\n"
+            "ffmpeg was not found. Install it and try again:\n"
             "  macOS:   brew install ffmpeg\n"
             "  Windows: download from https://www.gyan.dev/ffmpeg/builds/ "
-            "and add its bin/ folder to PATH."
+            "and add its bin/ folder to PATH.\n"
+            "(The prebuilt Windows .exe already includes ffmpeg, so this should "
+            "not appear there.)"
         )
 
 
