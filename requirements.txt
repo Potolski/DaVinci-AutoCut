@@ -1,0 +1,11 @@
+# Python dependencies for DaVinci Resolve Auto-Cut.
+#
+# ffmpeg is an EXTERNAL requirement (not a Python package) and must be installed
+# separately and available on your PATH. pydub shells out to it for decoding.
+#   macOS:   brew install ffmpeg
+#   Windows: https://www.gyan.dev/ffmpeg/builds/  (add bin/ to PATH)
+#
+# Blackmagic's DaVinciResolveScript module is NOT listed here. It ships with your
+# own DaVinci Resolve install and is loaded at runtime from there.
+
+pydub>=0.25.1
