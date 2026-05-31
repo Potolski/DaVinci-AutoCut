@@ -266,6 +266,12 @@ def main(resolve_obj=None) -> None:
     """Launch the GUI. ``resolve_obj`` is Resolve's injected ``resolve`` global."""
     root = tk.Tk()
     AutoCutApp(root, resolve_obj=resolve_obj)
+    # Resolve is usually fullscreen; make sure our window comes to the front
+    # instead of opening hidden behind it.
+    root.lift()
+    root.attributes("-topmost", True)
+    root.after(600, lambda: root.attributes("-topmost", False))
+    root.focus_force()
     root.mainloop()
 
 

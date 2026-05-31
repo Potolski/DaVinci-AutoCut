@@ -9,12 +9,32 @@ globals -- and those work in the FREE version, unlike an external connection.
 The file name (with the space) is what shows up as the menu label, so keep it.
 This launcher lives next to the ``autocut`` package; the installer copies both
 into Resolve's Scripts folder.
+
+Any error here is written to ``davinci-autocut-startup.log`` next to this file
+AND printed to Resolve's Console, so a failure is never silent.
 """
 
 import os
 import sys
+import traceback
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+def _plugin_dir():
+    """Folder containing this launcher (and the ``autocut`` package)."""
+    try:
+        return os.path.dirname(os.path.abspath(__file__))
+    except NameError:
+        # Some embedded runners don't define __file__.
+        return os.getcwd()
+
+
+def _log_startup_error(text):
+    try:
+        path = os.path.join(_plugin_dir(), "davinci-autocut-startup.log")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(text)
+    except OSError:
+        pass
 
 
 def _get_resolve():
@@ -34,9 +54,16 @@ def _get_resolve():
 
 
 def run():
+    sys.path.insert(0, _plugin_dir())
     from autocut.gui import main
 
     main(resolve_obj=_get_resolve())
 
 
-run()
+try:
+    run()
+except Exception:
+    tb = traceback.format_exc()
+    _log_startup_error(tb)
+    print("DaVinci AutoCut failed to start:\n" + tb)
+    raise
