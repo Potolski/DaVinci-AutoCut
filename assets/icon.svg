@@ -1,0 +1,32 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#30343C"/>
+      <stop offset="1" stop-color="#15181D"/>
+    </linearGradient>
+    <linearGradient id="wave" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5BC8F2"/>
+      <stop offset="1" stop-color="#3B79D8"/>
+    </linearGradient>
+  </defs>
+
+  <!-- app-icon plate -->
+  <rect x="16" y="16" width="480" height="480" rx="116" fill="url(#bg)"/>
+  <rect x="17" y="17" width="478" height="478" rx="115" fill="none" stroke="#454B55" stroke-width="2"/>
+
+  <!-- waveform with a gap in the middle (the cut) -->
+  <g fill="url(#wave)">
+    <rect x="92"  y="222" width="30" height="68"  rx="15"/>
+    <rect x="138" y="186" width="30" height="140" rx="15"/>
+    <rect x="184" y="140" width="30" height="232" rx="15"/>
+    <rect x="298" y="140" width="30" height="232" rx="15"/>
+    <rect x="344" y="186" width="30" height="140" rx="15"/>
+    <rect x="390" y="222" width="30" height="68"  rx="15"/>
+  </g>
+
+  <!-- cut marker: inward chevrons closing the gap -->
+  <g fill="none" stroke="#FF8A3D" stroke-width="18" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M232 206 L252 256 L232 306"/>
+    <path d="M280 206 L260 256 L280 306"/>
+  </g>
+</svg>
