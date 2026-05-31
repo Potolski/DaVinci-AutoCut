@@ -24,6 +24,16 @@ _GREEN = "#2e7d32"
 _RED = "#c62828"
 _GREY = "#666666"
 
+# Audio-track dropdown labels mapped to AnalysisSettings.audio_track values.
+_AUDIO_TRACK_CHOICES = {
+    "Auto (most speech)": "auto",
+    "All tracks (any sound)": "all",
+    "Track 1": 1,
+    "Track 2": 2,
+    "Track 3": 3,
+    "Track 4": 4,
+}
+
 
 def _crash_log_path() -> str:
     """Where to persist tracebacks (next to a frozen exe, else the temp dir)."""
@@ -72,6 +82,7 @@ class AutoCutApp(ttk.Frame):
         self._threshold = tk.DoubleVar(value=-40.0)
         self._min_silence = tk.DoubleVar(value=0.5)
         self._padding = tk.IntVar(value=150)
+        self._audio_track = tk.StringVar(value="Auto (most speech)")
 
         self._build_widgets()
         self.after(100, self._drain_events)
@@ -112,6 +123,12 @@ class AutoCutApp(ttk.Frame):
         ttk.Spinbox(
             settings, from_=0, to=1000, increment=10, width=8, textvariable=self._padding
         ).grid(row=2, column=1, sticky="w", padx=(10, 0))
+
+        ttk.Label(settings, text="Audio track").grid(row=3, column=0, sticky="w", pady=4)
+        ttk.Combobox(
+            settings, textvariable=self._audio_track, width=22, state="readonly",
+            values=list(_AUDIO_TRACK_CHOICES),
+        ).grid(row=3, column=1, sticky="w", padx=(10, 0))
         row += 1
 
         # Action.
@@ -192,11 +209,13 @@ class AutoCutApp(ttk.Frame):
             silence_threshold_db=float(self._threshold.get()),
             min_silence_seconds=float(self._min_silence.get()),
             padding_ms=int(self._padding.get()),
+            audio_track=_AUDIO_TRACK_CHOICES.get(self._audio_track.get(), "auto"),
         )
         self._log_line(
             f"Starting auto-cut (threshold {settings.silence_threshold_db:.0f} dB, "
             f"min silence {settings.min_silence_seconds:.2f}s, "
-            f"padding {settings.padding_ms} ms)..."
+            f"padding {settings.padding_ms} ms, "
+            f"audio: {self._audio_track.get()})..."
         )
         threading.Thread(
             target=self._cut_worker, args=(settings,), daemon=True

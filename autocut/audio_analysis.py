@@ -32,11 +32,16 @@ class AnalysisSettings:
     * ``silence_threshold_db`` -- levels below this (dBFS) count as silent.
     * ``min_silence_seconds``  -- only silences at least this long are cut.
     * ``padding_ms``           -- breathing room kept on each side of a segment.
+    * ``audio_track``          -- which audio stream of the source to analyze:
+      ``"auto"`` picks the stream with the most sound (avoids a near-silent
+      system/screen-capture track), ``"all"`` keeps audio where *any* stream
+      has sound, or a 1-based ``int`` selects a specific stream.
     """
 
     silence_threshold_db: float = -40.0
     min_silence_seconds: float = 0.5
     padding_ms: int = 150
+    audio_track: object = "auto"
 
 
 # -- locating ffmpeg ---------------------------------------------------------
@@ -60,14 +65,22 @@ def _candidate_dirs() -> List[str]:
     return dirs
 
 
-def _find_ffmpeg() -> Optional[str]:
-    """Return a path to ffmpeg: a bundled copy if present, else one on PATH."""
-    exe = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+def _find_tool(name: str) -> Optional[str]:
+    """Return a path to a bundled ffmpeg/ffprobe binary, else one on PATH."""
+    exe = name + ".exe" if os.name == "nt" else name
     for directory in _candidate_dirs():
         candidate = os.path.join(directory, exe)
         if os.path.isfile(candidate):
             return candidate
-    return shutil.which("ffmpeg")
+    return shutil.which(name)
+
+
+def _find_ffmpeg() -> Optional[str]:
+    return _find_tool("ffmpeg")
+
+
+def _find_ffprobe() -> Optional[str]:
+    return _find_tool("ffprobe")
 
 
 def ensure_ffmpeg_available() -> str:
@@ -122,32 +135,105 @@ def parse_silences(stderr_text: str) -> List[Tuple[float, float]]:
 
 
 @lru_cache(maxsize=64)
-def _detect_file_silences(
-    file_path: str, threshold_db: float, min_silence_seconds: float
+def _count_audio_streams(file_path: str) -> int:
+    """Number of audio streams in a file (via ffprobe), at least 1."""
+    ffprobe = _find_ffprobe()
+    if ffprobe is None:
+        return 1  # can't probe; assume one and analyze the default stream
+    try:
+        proc = subprocess.run(
+            [ffprobe, "-v", "error", "-select_streams", "a",
+             "-show_entries", "stream=index", "-of", "csv=p=0", file_path],
+            capture_output=True, text=True, **_no_window_kwargs(),
+        )
+    except OSError:
+        return 1
+    count = len([line for line in proc.stdout.splitlines() if line.strip()])
+    return max(1, count)
+
+
+@lru_cache(maxsize=128)
+def _stream_silences(
+    file_path: str, threshold_db: float, min_silence_seconds: float, stream_index: int
 ) -> Tuple[Tuple[float, float], ...]:
-    """Run ffmpeg once per (file, settings) and return silence intervals in ms."""
+    """Silence intervals (ms) for one audio stream of a file."""
     ffmpeg = ensure_ffmpeg_available()
     audio_filter = f"silencedetect=noise={threshold_db}dB:d={min_silence_seconds}"
     try:
         proc = subprocess.run(
             [ffmpeg, "-hide_banner", "-nostats", "-i", file_path,
-             "-af", audio_filter, "-f", "null", "-"],
-            capture_output=True,
-            text=True,
-            **_no_window_kwargs(),
+             "-map", f"0:a:{stream_index}", "-af", audio_filter, "-f", "null", "-"],
+            capture_output=True, text=True, **_no_window_kwargs(),
         )
     except OSError as exc:
         raise AudioAnalysisError(f"Could not run ffmpeg: {exc}") from exc
 
     silences = parse_silences(proc.stderr)
-    # silencedetect emits its findings even on success; a non-zero exit with no
-    # findings means ffmpeg couldn't read the file at all.
     if proc.returncode != 0 and not silences:
         tail = "\n".join(proc.stderr.strip().splitlines()[-3:])
         raise AudioAnalysisError(
-            f"ffmpeg failed to read {os.path.basename(file_path)}:\n{tail}"
+            f"ffmpeg failed to read audio stream {stream_index} of "
+            f"{os.path.basename(file_path)}:\n{tail}"
         )
     return tuple(silences)
+
+
+def _silence_total(silences: Tuple[Tuple[float, float], ...], cap_ms: float) -> float:
+    """Total silent duration, treating an open-ended (inf) silence as cap_ms."""
+    return sum(min(end, cap_ms) - start for start, end in silences)
+
+
+def _intersect_two(a, b):
+    """Intersection of two sorted lists of intervals (where BOTH are silent)."""
+    result = []
+    i = j = 0
+    a, b = sorted(a), sorted(b)
+    while i < len(a) and j < len(b):
+        start = max(a[i][0], b[j][0])
+        end = min(a[i][1], b[j][1])
+        if start < end:
+            result.append((start, end))
+        if a[i][1] <= b[j][1]:
+            i += 1
+        else:
+            j += 1
+    return result
+
+
+def _resolve_silences(
+    file_path: str, settings: AnalysisSettings
+) -> Tuple[Tuple[float, float], ...]:
+    """Pick the silence intervals to use, honoring ``settings.audio_track``."""
+    threshold = settings.silence_threshold_db
+    min_silence = settings.min_silence_seconds
+    n_streams = _count_audio_streams(file_path)
+    selection = settings.audio_track
+
+    # A specific 1-based track.
+    if isinstance(selection, int):
+        index = min(max(selection - 1, 0), n_streams - 1)
+        return _stream_silences(file_path, threshold, min_silence, index)
+
+    per_stream = [
+        _stream_silences(file_path, threshold, min_silence, i)
+        for i in range(n_streams)
+    ]
+
+    # "all": silent only where EVERY stream is silent (keep any audible audio).
+    if selection == "all":
+        acc = list(per_stream[0])
+        for nxt in per_stream[1:]:
+            acc = _intersect_two(acc, list(nxt))
+        return tuple(acc)
+
+    # "auto" (default): the stream with the least silence has the most speech.
+    cap = 0.0
+    for stream in per_stream:
+        for _start, end in stream:
+            if end != float("inf") and end > cap:
+                cap = end
+    cap = cap or 1e12
+    return min(per_stream, key=lambda s: _silence_total(s, cap))
 
 
 def find_keep_ranges_ms(
@@ -167,9 +253,7 @@ def find_keep_ranges_ms(
     if end <= start:
         return []
 
-    silences = _detect_file_silences(
-        file_path, settings.silence_threshold_db, settings.min_silence_seconds
-    )
+    silences = _resolve_silences(file_path, settings)
 
     segments: List[Tuple[float, float]] = []
     cursor = start
