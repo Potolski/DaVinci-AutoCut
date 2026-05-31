@@ -20,7 +20,7 @@
 #endif
 
 [Setup]
-AppId={{B6E4C0A1-7E2D-4D2E-9C3A-DA0C17AUTOCUT}}
+AppId={{B6E4C0A1-7E2D-4D2E-9C3A-1A2B3C4D5E6F}}
 AppName=DaVinci AutoCut
 AppVersion={#AppVersion}
 AppPublisher=David Potolski Lafeta
