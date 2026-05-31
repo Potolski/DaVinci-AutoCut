@@ -55,14 +55,17 @@ def _format_unexpected(exc: BaseException) -> str:
 class AutoCutApp(ttk.Frame):
     """Main application frame."""
 
-    def __init__(self, master: tk.Tk):
+    def __init__(self, master: tk.Tk, resolve_obj=None):
         super().__init__(master, padding=12)
-        self.master.title("DaVinci Resolve Auto-Cut")
+        self.master.title("DaVinci AutoCut")
         self.master.minsize(460, 520)
         self.grid(sticky="nsew")
         master.columnconfigure(0, weight=1)
         master.rowconfigure(0, weight=1)
 
+        # The resolve object Resolve injects when launched from Workspace ->
+        # Scripts. When present we connect automatically on startup.
+        self._resolve_obj = resolve_obj
         self._conn: ResolveConnection | None = None
         self._events: "queue.Queue[tuple]" = queue.Queue()
 
@@ -72,6 +75,8 @@ class AutoCutApp(ttk.Frame):
 
         self._build_widgets()
         self.after(100, self._drain_events)
+        if self._resolve_obj is not None:
+            self.after(150, self._on_connect)
 
     # -- layout ---------------------------------------------------------------
 
@@ -165,7 +170,7 @@ class AutoCutApp(ttk.Frame):
 
     def _connect_worker(self) -> None:
         try:
-            conn = connect()
+            conn = connect(self._resolve_obj)
             name = conn.current_timeline_name()
         except ResolveError as exc:
             self._events.put(("connect_error", str(exc)))
@@ -257,9 +262,10 @@ class AutoCutApp(ttk.Frame):
         self._connect_btn.configure(state="normal")
 
 
-def main() -> None:
+def main(resolve_obj=None) -> None:
+    """Launch the GUI. ``resolve_obj`` is Resolve's injected ``resolve`` global."""
     root = tk.Tk()
-    AutoCutApp(root)
+    AutoCutApp(root, resolve_obj=resolve_obj)
     root.mainloop()
 
 

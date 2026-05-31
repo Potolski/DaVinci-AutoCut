@@ -45,10 +45,12 @@ class AnalysisSettings:
 def _candidate_dirs() -> List[str]:
     """Directories that may hold a bundled ffmpeg, most-specific first."""
     here = os.path.dirname(os.path.abspath(__file__))
+    plugin_root = os.path.dirname(here)
     dirs = [
         os.path.join(here, "bin"),  # installed: autocut/bin/ffmpeg.exe
         here,
-        os.path.dirname(here),  # the plugin folder itself
+        os.path.join(plugin_root, "bin"),  # plugin-root/bin/ffmpeg.exe
+        plugin_root,  # the plugin folder itself
     ]
     if getattr(sys, "frozen", False):  # also support a PyInstaller build
         meipass = getattr(sys, "_MEIPASS", None)

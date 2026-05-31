@@ -60,28 +60,37 @@ class KeepRange:
     end_frame: int
 
 
-def connect() -> "ResolveConnection":
-    """Attach to a running DaVinci Resolve and return a connection wrapper.
+def connect(resolve_obj=None) -> "ResolveConnection":
+    """Return a connection wrapper around the Resolve scripting object.
 
-    Raises :class:`ResolveError` if Resolve is not running, scripting is not
-    enabled, or no project is open.
+    The plugin launcher passes ``resolve_obj`` -- the ``resolve`` global that
+    DaVinci Resolve injects into scripts run from ``Workspace -> Scripts``. That
+    injected object works in the FREE version. If it isn't supplied we fall back
+    to the external ``scriptapp`` connection, which only works in Studio.
+
+    Raises :class:`ResolveError` with guidance if no object can be obtained.
     """
-    try:
-        dvr_script = load_resolve_module()
-    except ResolveEnvironmentError as exc:
-        raise ResolveError(str(exc)) from exc
-
-    resolve = dvr_script.scriptapp("Resolve")
+    resolve = resolve_obj or _connect_external()
     if resolve is None:
         raise ResolveError(
-            "Could not connect to DaVinci Resolve.\n"
-            "Check that:\n"
-            "  1. DaVinci Resolve is running.\n"
-            "  2. Scripting is enabled: Preferences -> System -> General ->\n"
-            "     'External scripting using' is set to Local."
+            "Could not obtain the DaVinci Resolve scripting object.\n"
+            "The free version only exposes scripting to scripts launched from\n"
+            "inside Resolve. Run this from Workspace -> Scripts -> DaVinci AutoCut\n"
+            "(not as a standalone app). Also make sure a project is open."
         )
-
     return ResolveConnection(resolve)
+
+
+def _connect_external():
+    """Best-effort external connection (Studio only). Returns None on failure."""
+    try:
+        dvr_script = load_resolve_module()
+    except ResolveEnvironmentError:
+        return None
+    try:
+        return dvr_script.scriptapp("Resolve")
+    except Exception:
+        return None
 
 
 class ResolveConnection:
