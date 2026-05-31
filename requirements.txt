@@ -9,3 +9,7 @@
 # own DaVinci Resolve install and is loaded at runtime from there.
 
 pydub>=0.25.1
+
+# Python 3.13 removed the stdlib `audioop` module that pydub relies on
+# (PEP 594). This backport restores it. Harmless on older Pythons.
+audioop-lts>=0.2.1; python_version >= "3.13"
