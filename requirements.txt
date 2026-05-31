@@ -1,15 +1,10 @@
-# Python dependencies for DaVinci Resolve Auto-Cut.
+# DaVinci AutoCut has NO Python package dependencies.
 #
-# ffmpeg is an EXTERNAL requirement (not a Python package) and must be installed
-# separately and available on your PATH. pydub shells out to it for decoding.
-#   macOS:   brew install ffmpeg
-#   Windows: https://www.gyan.dev/ffmpeg/builds/  (add bin/ to PATH)
+# Silence detection is done with ffmpeg's built-in `silencedetect` filter, so
+# the only runtime requirements are:
+#   * Python 3 (DaVinci Resolve needs it to run Python scripts at all)
+#   * ffmpeg   (the installer bundles ffmpeg.exe next to the plugin on Windows)
 #
-# Blackmagic's DaVinciResolveScript module is NOT listed here. It ships with your
-# own DaVinci Resolve install and is loaded at runtime from there.
-
-pydub>=0.25.1
-
-# Python 3.13 removed the stdlib `audioop` module that pydub relies on
-# (PEP 594). This backport restores it. Harmless on older Pythons.
-audioop-lts>=0.2.1; python_version >= "3.13"
+# The GUI uses Tkinter, which ships with the standard Python installers.
+#
+# This file is intentionally empty of packages -- nothing to `pip install`.

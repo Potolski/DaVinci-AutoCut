@@ -1,34 +1,37 @@
-"""Find the non-silent ("keep") regions of an audio file with ffmpeg + pydub.
+"""Find the non-silent ("keep") regions of an audio file using ffmpeg.
 
-Everything here works directly on the source media on disk – we never pull
-samples through the Resolve API. ffmpeg must be installed and on PATH; pydub
-shells out to it to decode whatever container/codec the source uses.
+Silence detection is done entirely by ffmpeg's built-in ``silencedetect`` audio
+filter, parsed from its stderr output. This means the only external dependency
+is ffmpeg itself -- there are no Python packages to install into Resolve's
+interpreter, which matters because the plugin runs inside DaVinci Resolve.
+
+ffmpeg is located by absolute path (a copy shipped next to the plugin, or one on
+PATH), so the user never has to configure their PATH.
 """
 
 from __future__ import annotations
 
 import os
+import re
 import shutil
+import subprocess
 import sys
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import List, Optional, Tuple
 
-from pydub import AudioSegment
-from pydub.silence import detect_nonsilent
-
 
 class AudioAnalysisError(RuntimeError):
-    """A problem decoding or analyzing a source audio file."""
+    """A problem locating ffmpeg or analyzing a source audio file."""
 
 
 @dataclass(frozen=True)
 class AnalysisSettings:
     """Tunable parameters for silence detection.
 
-    * ``silence_threshold_db`` – levels below this (dBFS) count as silent.
-    * ``min_silence_seconds``  – only silences at least this long are cut.
-    * ``padding_ms``           – breathing room kept on each side of a segment.
+    * ``silence_threshold_db`` -- levels below this (dBFS) count as silent.
+    * ``min_silence_seconds``  -- only silences at least this long are cut.
+    * ``padding_ms``           -- breathing room kept on each side of a segment.
     """
 
     silence_threshold_db: float = -40.0
@@ -36,15 +39,18 @@ class AnalysisSettings:
     padding_ms: int = 150
 
 
-def _bundle_dirs() -> List[str]:
-    """Directories to search for an ffmpeg shipped alongside a frozen build.
+# -- locating ffmpeg ---------------------------------------------------------
 
-    A PyInstaller one-file build unpacks its bundled files into ``sys._MEIPASS``;
-    a one-folder build keeps them next to the executable. We check both, plus a
-    ``ffmpeg`` subfolder, so the same code works however the app was packaged.
-    """
-    dirs: List[str] = []
-    if getattr(sys, "frozen", False):
+
+def _candidate_dirs() -> List[str]:
+    """Directories that may hold a bundled ffmpeg, most-specific first."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    dirs = [
+        os.path.join(here, "bin"),  # installed: autocut/bin/ffmpeg.exe
+        here,
+        os.path.dirname(here),  # the plugin folder itself
+    ]
+    if getattr(sys, "frozen", False):  # also support a PyInstaller build
         meipass = getattr(sys, "_MEIPASS", None)
         if meipass:
             dirs.append(meipass)
@@ -55,62 +61,91 @@ def _bundle_dirs() -> List[str]:
 def _find_ffmpeg() -> Optional[str]:
     """Return a path to ffmpeg: a bundled copy if present, else one on PATH."""
     exe = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
-    for directory in _bundle_dirs():
-        for candidate in (os.path.join(directory, exe), os.path.join(directory, "ffmpeg", exe)):
-            if os.path.isfile(candidate):
-                return candidate
+    for directory in _candidate_dirs():
+        candidate = os.path.join(directory, exe)
+        if os.path.isfile(candidate):
+            return candidate
     return shutil.which("ffmpeg")
 
 
-_ffmpeg_configured = False
-
-
-def configure_ffmpeg() -> Optional[str]:
-    """Point pydub at the resolved ffmpeg (and ffprobe) binary.
-
-    Returns the ffmpeg path, or ``None`` if none could be found. Wiring pydub's
-    ``converter``/``ffprobe`` explicitly means a bundled ffmpeg works even when
-    nothing is installed on the user's PATH. Idempotent.
-    """
-    global _ffmpeg_configured
-    ffmpeg_path = _find_ffmpeg()
-    if ffmpeg_path and not _ffmpeg_configured:
-        AudioSegment.converter = ffmpeg_path
-        bin_dir = os.path.dirname(ffmpeg_path)
-        probe = "ffprobe.exe" if os.name == "nt" else "ffprobe"
-        probe_path = os.path.join(bin_dir, probe)
-        if os.path.isfile(probe_path):
-            AudioSegment.ffprobe = probe_path
-        # Prepend so pydub's own PATH lookups also find the bundled binary.
-        os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
-        _ffmpeg_configured = True
-    return ffmpeg_path
-
-
-def ensure_ffmpeg_available() -> None:
-    """Raise :class:`AudioAnalysisError` if no usable ffmpeg can be found."""
-    if configure_ffmpeg() is None:
+def ensure_ffmpeg_available() -> str:
+    """Return a usable ffmpeg path or raise :class:`AudioAnalysisError`."""
+    ffmpeg = _find_ffmpeg()
+    if ffmpeg is None:
         raise AudioAnalysisError(
-            "ffmpeg was not found. Install it and try again:\n"
-            "  macOS:   brew install ffmpeg\n"
-            "  Windows: download from https://www.gyan.dev/ffmpeg/builds/ "
-            "and add its bin/ folder to PATH.\n"
-            "(The prebuilt Windows .exe already includes ffmpeg, so this should "
-            "not appear there.)"
+            "ffmpeg could not be found. The installer normally places it next "
+            "to the plugin; if you installed manually, put ffmpeg(.exe) in the "
+            "plugin's 'bin' folder or on your PATH."
         )
+    return ffmpeg
 
 
-@lru_cache(maxsize=32)
-def _load_audio(file_path: str) -> AudioSegment:
-    """Decode a file to a mono :class:`AudioSegment` (cached per path)."""
+def _no_window_kwargs() -> dict:
+    """Keep a console window from flashing when ffmpeg runs under a GUI on Windows."""
+    if os.name != "nt":
+        return {}
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    return {"startupinfo": startupinfo, "creationflags": creationflags}
+
+
+# -- silence detection -------------------------------------------------------
+
+_SILENCE_START = re.compile(r"silence_start:\s*(-?\d+(?:\.\d+)?)")
+_SILENCE_END = re.compile(r"silence_end:\s*(-?\d+(?:\.\d+)?)")
+
+
+def parse_silences(stderr_text: str) -> List[Tuple[float, float]]:
+    """Parse ffmpeg ``silencedetect`` stderr into (start_ms, end_ms) intervals.
+
+    A trailing ``silence_start`` with no matching ``silence_end`` (the file ends
+    mid-silence) is reported as running to infinity; callers clamp it to the
+    region of interest.
+    """
+    silences: List[Tuple[float, float]] = []
+    pending: Optional[float] = None
+    for line in stderr_text.splitlines():
+        start = _SILENCE_START.search(line)
+        if start:
+            pending = max(0.0, float(start.group(1)))
+            continue
+        end = _SILENCE_END.search(line)
+        if end and pending is not None:
+            silences.append((pending * 1000.0, float(end.group(1)) * 1000.0))
+            pending = None
+    if pending is not None:
+        silences.append((pending * 1000.0, float("inf")))
+    return silences
+
+
+@lru_cache(maxsize=64)
+def _detect_file_silences(
+    file_path: str, threshold_db: float, min_silence_seconds: float
+) -> Tuple[Tuple[float, float], ...]:
+    """Run ffmpeg once per (file, settings) and return silence intervals in ms."""
+    ffmpeg = ensure_ffmpeg_available()
+    audio_filter = f"silencedetect=noise={threshold_db}dB:d={min_silence_seconds}"
     try:
-        audio = AudioSegment.from_file(file_path)
-    except Exception as exc:  # pydub raises a grab-bag of exception types
+        proc = subprocess.run(
+            [ffmpeg, "-hide_banner", "-nostats", "-i", file_path,
+             "-af", audio_filter, "-f", "null", "-"],
+            capture_output=True,
+            text=True,
+            **_no_window_kwargs(),
+        )
+    except OSError as exc:
+        raise AudioAnalysisError(f"Could not run ffmpeg: {exc}") from exc
+
+    silences = parse_silences(proc.stderr)
+    # silencedetect emits its findings even on success; a non-zero exit with no
+    # findings means ffmpeg couldn't read the file at all.
+    if proc.returncode != 0 and not silences:
+        tail = "\n".join(proc.stderr.strip().splitlines()[-3:])
         raise AudioAnalysisError(
-            f"Could not decode audio from {file_path!r}: {exc}"
-        ) from exc
-    # Mono keeps level math simple and matches how speech sits in the mix.
-    return audio.set_channels(1)
+            f"ffmpeg failed to read {os.path.basename(file_path)}:\n{tail}"
+        )
+    return tuple(silences)
 
 
 def find_keep_ranges_ms(
@@ -119,40 +154,36 @@ def find_keep_ranges_ms(
     region_end_ms: float,
     settings: AnalysisSettings,
 ) -> List[Tuple[float, float]]:
-    """Return non-silent ranges (in absolute source ms) within a clip's region.
+    """Return non-silent ranges (absolute source ms) within a clip's region.
 
-    Only the ``[region_start_ms, region_end_ms)`` slice of the source is
-    analyzed – that is the portion the timeline clip actually uses. Padding is
-    applied to each kept segment and overlapping segments are merged. Returned
-    ranges are clamped to the region.
+    The complement of the detected silences inside
+    ``[region_start_ms, region_end_ms)`` gives the kept segments; each is then
+    padded outward, clamped to the region, and overlapping segments are merged.
     """
-    audio = _load_audio(file_path)
-
-    start = max(0, int(region_start_ms))
-    end = min(len(audio), int(region_end_ms))
+    start = max(0.0, region_start_ms)
+    end = region_end_ms
     if end <= start:
         return []
 
-    region = audio[start:end]
-
-    nonsilent = detect_nonsilent(
-        region,
-        min_silence_len=max(1, int(settings.min_silence_seconds * 1000)),
-        silence_thresh=settings.silence_threshold_db,
-        seek_step=1,
+    silences = _detect_file_silences(
+        file_path, settings.silence_threshold_db, settings.min_silence_seconds
     )
-    if not nonsilent:
-        return []
 
-    # Offset back to absolute source coordinates and apply padding.
-    padded: List[Tuple[float, float]] = []
-    for seg_start, seg_end in nonsilent:
-        abs_start = start + seg_start - settings.padding_ms
-        abs_end = start + seg_end + settings.padding_ms
-        abs_start = max(start, abs_start)
-        abs_end = min(end, abs_end)
-        padded.append((abs_start, abs_end))
+    segments: List[Tuple[float, float]] = []
+    cursor = start
+    for sil_start, sil_end in silences:
+        if sil_end <= start or sil_start >= end:
+            continue
+        sil_start = max(sil_start, start)
+        sil_end = min(sil_end, end)
+        if sil_start > cursor:
+            segments.append((cursor, sil_start))
+        cursor = max(cursor, sil_end)
+    if cursor < end:
+        segments.append((cursor, end))
 
+    pad = settings.padding_ms
+    padded = [(max(start, a - pad), min(end, b + pad)) for a, b in segments]
     return _merge_overlapping(padded)
 
 
