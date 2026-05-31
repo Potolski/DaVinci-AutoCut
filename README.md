@@ -1,216 +1,145 @@
-# DaVinci Resolve Auto-Cut
+# DaVinci AutoCut
 
-A small, standalone desktop tool that removes silent gaps from a
-**DaVinci Resolve** timeline. It connects to a running Resolve instance over the
-official Python scripting API, analyzes the source audio outside of Resolve with
-**ffmpeg + pydub**, and produces a **new cut timeline** that you can keep
-editing.
+A free, open-source tool that removes silent gaps from a **DaVinci Resolve**
+timeline. It runs **inside Resolve** as a script (`Workspace → Scripts →
+DaVinci AutoCut`), analyzes your source audio with ffmpeg, and builds a **new
+cut timeline** with the silences removed — your original timeline is left
+untouched.
 
-Your original timeline is never touched — the result is always a fresh timeline
-in the same project, so the original stays as a backup.
-
-> Works with the **free** version of DaVinci Resolve. No Studio-only features are
-> used, and no video is ever exported or rendered — the new timeline just
-> references your existing media via in/out subclips.
+Works on the **free** version of DaVinci Resolve *and* Studio. No video is ever
+exported or rendered; the new timeline just references your existing media.
 
 ## What it does
 
-1. Connects to an already-running DaVinci Resolve instance.
-2. Reads every video clip on the **currently open timeline**, including each
-   clip's source media path and source in/out points.
-3. For each clip, analyzes the source audio to find silent regions —
+1. Reads every video clip on the **currently open timeline** (source media path
+   + in/out points).
+2. For each clip, uses **ffmpeg's `silencedetect`** to find silent regions —
    "silent" means below a configurable dB threshold, and only silences longer
    than a configurable minimum duration are cut.
-4. Computes the **keep** (non-silent) ranges and adds a small configurable
-   padding (default 150 ms) on each side so cuts don't clip speech.
-5. Builds a **new timeline** (named `<original> - AutoCut`) from those keep
-   ranges. The original timeline is left intact.
+3. Keeps the non-silent ranges, with a small configurable padding (default
+   150 ms) on each side so cuts don't clip speech.
+4. Builds a **new timeline** (`<original> - AutoCut`) from those ranges, beside
+   the original.
 
-## Windows: download and run (no Python, no ffmpeg)
+## Why it runs *inside* Resolve (important)
 
-The easiest way on Windows is the prebuilt **`DaVinciAutoCut.exe`**. It bundles
-Python, all dependencies, **and ffmpeg** — so you just download one file and
-double-click it.
+The free version of DaVinci Resolve **does not allow external programs to control
+it** via the scripting API — that's a Studio-only feature. What the free version
+*does* allow is running a script from **`Workspace → Scripts`**, where Resolve
+hands the script a working connection to itself.
 
-1. Make sure **DaVinci Resolve is installed and running**, with scripting set to
-   **Local** (see [Enable scripting](#1-enable-scripting-in-resolve)) and the
-   timeline you want to cut open.
-2. Download `DaVinciAutoCut.exe` from the
-   [**Releases**](../../releases/latest) page. (Don't have a release yet? See
-   [Building the Windows .exe](#building-the-windows-exe) — it can be produced
-   automatically by GitHub Actions.)
-3. Double-click `DaVinciAutoCut.exe`.
-4. Click **Connect to Resolve**, adjust the sliders, and click **Cut Timeline**.
+So DaVinci AutoCut is delivered as a **Resolve script/plugin**, not a standalone
+app. This is the same mechanism commercial tools like AutoCut use to support the
+free version.
 
-That's it — nothing else to install. The only thing the .exe can't include is
-DaVinci Resolve itself, because the whole point is to connect to *your* running
-copy.
+## Install — Windows (recommended)
+
+1. Download **`DaVinciAutoCut-Setup.exe`** from the
+   [Releases](../../releases/latest) page.
+2. Run it. The installer:
+   - copies the plugin into Resolve's Scripts folder (no admin needed),
+   - bundles **ffmpeg** next to the plugin (you don't install it or touch your
+     PATH),
+   - checks for **Python 3** — which Resolve needs to run Python scripts — and
+     offers to install it for you if it's missing.
+3. Restart DaVinci Resolve.
+4. Open your timeline, then run **`Workspace → Scripts → DaVinci AutoCut`**.
 
 > Windows may show a SmartScreen "unknown publisher" warning for an unsigned
-> executable. Click **More info → Run anyway**.
+> installer. Click **More info → Run anyway**.
+
+## Install — macOS / Linux (manual)
+
+There's no packaged installer yet for macOS/Linux, but installing by hand is
+quick:
+
+1. Install **ffmpeg** and make sure Resolve can find a **Python 3**:
+   - macOS: `brew install ffmpeg` (and install Python 3 from python.org if you
+     don't have it).
+   - Linux: `sudo apt install ffmpeg python3` (or your distro's equivalent).
+2. Copy `DaVinci AutoCut.py` **and** the `autocut/` folder into Resolve's
+   Scripts folder:
+   - macOS: `~/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Edit/`
+   - Linux: `~/.local/share/DaVinciResolve/Fusion/Scripts/Edit/`
+3. Restart Resolve → `Workspace → Scripts → DaVinci AutoCut`.
+
+(ffmpeg on your PATH is fine; or drop an `ffmpeg` binary in `autocut/bin/` next
+to the plugin.)
+
+## Using it
+
+When you launch it, a small window opens and connects to Resolve automatically.
+Adjust the settings and click **Cut Timeline**:
+
+- **Silence threshold (dB)** — default `-40`. Lower (more negative) keeps quieter
+  audio.
+- **Min silence (seconds)** — default `0.5`. Shorter pauses are never cut.
+- **Padding (ms)** — default `150`. Breathing room kept around each segment.
+
+A new timeline `<your timeline> - AutoCut` is created and selected in Resolve.
 
 ## Requirements
 
-> These apply if you run from source or on macOS/Linux. Windows users running the
-> prebuilt `.exe` only need DaVinci Resolve.
+- DaVinci Resolve 18.6 or 19+ (free or Studio), with a project and timeline open.
+- A **Python 3** install Resolve can use (the Windows installer sets this up).
+- **ffmpeg** (bundled by the Windows installer; install it yourself on
+  macOS/Linux).
 
-- **DaVinci Resolve** (free or Studio), installed and running.
-- **Python 3.9+** with **Tkinter** (ships with the standard python.org
-  installers and on macOS/Windows; on some Linux distros install `python3-tk`).
-- **ffmpeg** installed and on your `PATH`.
-- The Python packages in `requirements.txt`.
+There are **no Python package dependencies** — silence detection uses ffmpeg
+directly, so there's nothing to `pip install`.
 
-> **Note on Blackmagic's scripting modules:** this project does **not** bundle or
-> redistribute Blackmagic's `DaVinciResolveScript` Python module. The app loads
-> it at runtime from *your own* DaVinci Resolve installation. You must have
-> Resolve installed for the scripting bridge to work.
-
-## Setup
-
-### 1. Enable scripting in Resolve
-
-In DaVinci Resolve:
-
-**Preferences → System → General → "External scripting using"** → set it to
-**Local**.
-
-Then restart Resolve and open the project/timeline you want to cut.
-
-### 2. Install ffmpeg
-
-- **macOS:** `brew install ffmpeg`
-- **Windows:** download a build from
-  <https://www.gyan.dev/ffmpeg/builds/> and add its `bin/` folder to your
-  `PATH`.
-- **Linux:** `sudo apt install ffmpeg` (or your distro's equivalent).
-
-Verify it's reachable:
-
-```bash
-ffmpeg -version
-```
-
-### 3. Install Python dependencies
-
-```bash
-python -m pip install -r requirements.txt
-```
-
-On **Python 3.13+**, `requirements.txt` also pulls in `audioop-lts`, a backport
-of the `audioop` module that pydub needs (it was removed from the standard
-library in 3.13).
-
-## Running
-
-With Resolve open and a timeline loaded:
-
-```bash
-python autocut.py
-```
-
-Then in the window:
-
-1. Click **Connect to Resolve** — the status turns green when connected.
-2. Adjust the settings if you like:
-   - **Silence threshold (dB)** — default `-40`. Lower (more negative) keeps
-     quieter audio.
-   - **Min silence (seconds)** — default `0.5`. Shorter pauses are never cut.
-   - **Padding (ms)** — default `150`. Breathing room kept around each segment.
-3. Click **Cut Timeline**. Progress and results appear in the log.
-
-When it finishes, a new timeline called `<your timeline> - AutoCut` is created
-and selected in Resolve.
-
-### Quick connection test
-
-To verify the scripting bridge before using the GUI, run the read-only smoke
-test (Resolve must be open with a timeline):
-
-```bash
-python -m autocut.list_clips
-```
-
-It prints the clips on the current timeline with their source paths and in/out
-frames.
+> **Note on Blackmagic's scripting modules:** this project does not bundle or
+> redistribute any Blackmagic code. It uses the scripting connection Resolve
+> provides to scripts launched from its own Scripts menu.
 
 ## How it's organized
 
 ```
-autocut.py              # GUI entry point
+DaVinci AutoCut.py        # launcher Resolve runs; grabs the injected `resolve`
 autocut/
-  resolve_env.py        # locates Resolve's scripting modules, sets env vars
-  resolve_api.py        # connect, read timeline clips, build the new timeline
-  audio_analysis.py     # ffmpeg + pydub silence detection, padding, merging
-  processor.py          # orchestration + millisecond-to-frame conversion
-  gui.py                # Tkinter interface
-  list_clips.py         # 'python -m autocut.list_clips' connection smoke test
+  resolve_api.py          # connect via the injected object, read clips, build timeline
+  audio_analysis.py       # ffmpeg silencedetect, padding, merging, ffmpeg location
+  processor.py            # orchestration + millisecond-to-frame conversion
+  gui.py                  # Tkinter interface
+  resolve_env.py          # fallback env setup for external (Studio) connection
+installer/
+  davinci-autocut.iss     # Inno Setup script for the Windows installer
 ```
 
-The Resolve connection, audio analysis, and GUI are deliberately kept in
-separate modules.
+## Building the Windows installer
 
-## Building the Windows .exe
-
-The repo ships everything needed to produce the standalone
-`DaVinciAutoCut.exe`. It bundles ffmpeg via the
-[`autocut.spec`](autocut.spec) PyInstaller spec.
-
-### Option A — let GitHub Actions build it (no Windows machine needed)
-
-The [`build-windows.yml`](.github/workflows/build-windows.yml) workflow builds
-the `.exe` on a Windows runner automatically:
-
-- **Every push to `main`** (and manual *Run workflow* from the Actions tab):
-  the `.exe` is uploaded as a downloadable **build artifact**.
-- **Pushing a version tag** publishes the `.exe` to a **GitHub Release**:
-
-  ```bash
-  git tag v0.1.0
-  git push origin v0.1.0
-  ```
-
-  The finished `DaVinciAutoCut.exe` then appears on the repo's Releases page.
-
-### Option B — build locally on Windows
-
-With Python 3.9+ installed, from the repo root:
-
-```bat
-build_windows.bat
-```
-
-It installs the dependencies, downloads ffmpeg into `vendor/`, runs PyInstaller,
-and leaves the result at `dist\DaVinciAutoCut.exe`.
-
-Notes:
-
-- DaVinci Resolve still has to be installed on the target machine — PyInstaller
-  bundles the Python app and ffmpeg, but not Resolve.
-- Blackmagic's scripting module is still loaded from the local Resolve install
-  at runtime, by design.
-- The bundled ffmpeg is a GPL build from <https://www.gyan.dev/ffmpeg/builds/>;
-  it is downloaded at build time and is not committed to this repository.
-
-### macOS / Linux
-
-The same spec works for a native app bundle if you place an `ffmpeg` binary in
-`vendor/` first:
+GitHub Actions builds it for you ([`build-windows.yml`](.github/workflows/build-windows.yml)):
+push a version tag and the finished `DaVinciAutoCut-Setup.exe` is attached to a
+Release.
 
 ```bash
-python -m pip install pyinstaller
-pyinstaller autocut.spec
+git tag v0.2.0
+git push origin v0.2.0
 ```
+
+To build locally on Windows, install [Inno Setup](https://jrsoftware.org/isinfo.php),
+put `ffmpeg.exe` (and optionally `ffprobe.exe`) in `installer/vendor/`, then:
+
+```bat
+cd installer
+iscc /DFFmpegDir=vendor davinci-autocut.iss
+```
+
+The installer lands in `installer/output/`.
 
 ## Troubleshooting
 
-- **"Could not connect to DaVinci Resolve"** — make sure Resolve is running and
-  that external scripting is set to **Local** (see Setup), then restart Resolve.
-- **"Could not import the DaVinci Resolve scripting module"** — Resolve isn't
-  installed in a standard location. Set the `RESOLVE_SCRIPT_API` and
-  `RESOLVE_SCRIPT_LIB` environment variables to your install's paths before
-  launching.
-- **"ffmpeg was not found on your PATH"** — install ffmpeg and make sure
-  `ffmpeg -version` works in the same terminal.
+- **"Could not obtain the DaVinci Resolve scripting object"** — you're on the
+  free version and ran it as a standalone app. Run it from
+  `Workspace → Scripts → DaVinci AutoCut` instead, and make sure a project is
+  open.
+- **Nothing appears under `Workspace → Scripts`** — the files aren't in the
+  Scripts folder, or Resolve wasn't restarted after installing.
+- **"ffmpeg could not be found"** — on macOS/Linux, install ffmpeg or place an
+  `ffmpeg` binary in `autocut/bin/`. On Windows the installer handles this.
+- **The Scripts menu is greyed out / Python errors** — Resolve can't find a
+  Python 3 interpreter. Install Python 3 (the Windows installer offers to) and
+  restart Resolve.
 - **"No timeline is open"** — open a timeline in Resolve first.
 
 ## License
