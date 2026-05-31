@@ -75,6 +75,12 @@ Adjust the settings and click **Cut Timeline**:
   audio.
 - **Min silence (seconds)** — default `0.5`. Shorter pauses are never cut.
 - **Padding (ms)** — default `150`. Breathing room kept around each segment.
+- **Audio track** — which audio of the source to analyze. **Auto** (default)
+  picks the track with the most speech, so a near-silent system/screen-capture
+  track won't throw it off. **All tracks** keeps audio wherever *any* track is
+  audible, or pick a specific **Track 1–4** (e.g. your mic). This matters for
+  screen recordings that capture computer audio and microphone as separate
+  tracks.
 
 A new timeline `<your timeline> - AutoCut` is created and selected in Resolve.
 
