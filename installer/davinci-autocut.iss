@@ -10,7 +10,7 @@
 ;   iscc /DFFmpegDir=vendor installer\davinci-autocut.iss
 
 #ifndef AppVersion
-  #define AppVersion "0.2.0"
+  #define AppVersion "0.4.0"
 #endif
 #ifndef FFmpegDir
   #define FFmpegDir "vendor"

@@ -5,4 +5,4 @@ analyzing the source audio with ffmpeg + pydub and building a fresh cut timeline
 that references the original media. The original timeline is never modified.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.4.0"
