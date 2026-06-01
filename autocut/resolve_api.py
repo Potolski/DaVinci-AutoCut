@@ -203,14 +203,21 @@ class ResolveConnection:
         # Make the new timeline current so AppendToTimeline targets it.
         project.SetCurrentTimeline(new_timeline)
 
-        clip_infos = [
-            {
+        # Append the video and audio of each segment as SEPARATE clip infos
+        # (mediaType 1 = video only, 2 = audio only). Handing Resolve the whole
+        # clip and hoping it brings both is unreliable -- it inconsistently drops
+        # either the picture or the extra audio tracks. Splitting them forces the
+        # video onto V1 every time, while the audio-only part still distributes
+        # the clip's streams across the audio tracks we pre-created.
+        clip_infos = []
+        for kr in keep_ranges:
+            base = {
                 "mediaPoolItem": kr.media_pool_item,
                 "startFrame": kr.start_frame,
                 "endFrame": kr.end_frame,
             }
-            for kr in keep_ranges
-        ]
+            clip_infos.append({**base, "mediaType": 1})  # video -> V1
+            clip_infos.append({**base, "mediaType": 2})  # audio -> A1..An
 
         appended = media_pool.AppendToTimeline(clip_infos)
         if not appended:
